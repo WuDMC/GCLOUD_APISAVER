@@ -1,0 +1,10 @@
+pylint==3.1.0
+pytest==8.1.1
+pytest-cov==5.0.0
+ipython==8.23.0
+black==24.4.1
+google==3.0.0
+Flask==3.0.3
+google-api-python-client==2.127.0
+setuptools
+python-dotenv
