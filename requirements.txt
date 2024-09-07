@@ -8,3 +8,4 @@ Flask==3.0.3
 google-api-python-client==2.127.0
 setuptools
 python-dotenv
+flask-cors

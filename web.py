@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from upload import Uploader
 import json
 import os
@@ -7,6 +8,7 @@ from datetime import datetime
 import base64
 
 app = Flask(__name__)
+CORS(app)
 load_dotenv()
 
 # Initialize the Uploader with credentials from environment variables
@@ -29,7 +31,7 @@ def upload():
         mimetype = data.get('mimetype')
         username = data.get('username')
         file_name = data.get('filename')
-
+        email = data.get('email')
         # Check for required fields
         if not base64file or not mimetype or not username or not file_name:
             return jsonify({"error": "Missing required fields."}), 400
@@ -38,6 +40,7 @@ def upload():
         folder_id = uploader.get_existing_folder_id(username)
         if not folder_id:
             folder_id = uploader.create_folder(username)
+            uploader.extend_permissions(folder_id, email=email)
             if not folder_id:
                 return jsonify({"error": "Failed to create or retrieve the user folder."}), 500
 
