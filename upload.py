@@ -140,29 +140,6 @@ class Uploader:
             logging.info(f"An error occurred while checking permissions: {error}")
             return False
 
-    def extend_permissions(self, folder_id, email=None):
-        try:
-            # Define the permission dictionary
-            permission = {"type": type, "role": "reader"}
-
-            # If an email is provided, modify the permission for the specific email
-            if email:
-                permission["type"] = "user"  # Set type to 'user' for specific email
-                permission["emailAddress"] = email
-
-            # Create the permission for the folder
-            self.service.permissions().create(
-                fileId=folder_id, body=permission, fields="id"
-            ).execute()
-
-            # Print confirmation message
-            logging.info(f"Permissions extended for folder with ID '{folder_id}'")
-            if email:
-                logging.info(f"Access granted to email: {email}")
-
-        except Exception as error:
-            logging.error(f"An error occurred while extending permissions: {error}")
-
     def create_folder(self, folder_name, parent_folder_id=PARENT_FOLDER_ID):
         metadata = {
             "name": folder_name,
@@ -191,10 +168,161 @@ class Uploader:
     def get_folder_url(self, folder_id):
         return f"https://drive.google.com/drive/folders/{folder_id}"
 
+    def list_permissions(self, file_id):
+        try:
+            # Получаем список всех разрешений для файла или папки
+            permissions = self.service.permissions().list(fileId=file_id, fields="permissions(id, type, role, emailAddress)").execute()
+
+            permission_list = permissions.get("permissions", [])
+
+            # Проверяем, есть ли разрешения
+            if not permission_list:
+                logging.info(f"Для файла или папки с ID '{file_id}' нет доступных разрешений.")
+                return
+
+            # Выводим каждое разрешение в читабельном формате
+            logging.info(f"Список разрешений для файла или папки с ID '{file_id}':")
+            for permission in permission_list:
+                permission_type = permission.get("type", "Неизвестно")
+                permission_role = permission.get("role", "Неизвестно")
+                email = permission.get("emailAddress", "N/A")
+
+                logging.info(f"Тип: {permission_type}, Роль: {permission_role}, Email: {email}")
+
+        except Exception as error:
+            logging.error(f"Произошла ошибка при получении списка разрешений: {error}")
+
+
+    def check_permissions(self, file_id, email=None):
+        try:
+            permissions = self.service.permissions().list(fileId=file_id, fields="permissions(id, type, role, emailAddress)").execute()
+
+            # Если нужно проверить права для конкретного пользователя по email
+            if email:
+                for permission in permissions.get("permissions", []):
+                    if permission.get("emailAddress") == email:
+                        logging.info(f"{email} имеет права {permission.get('role')} на чтение для файла/папки с ID '{file_id}'.")
+                        return True
+                logging.info(f"{email} не имеет прав для файла/папки с ID '{file_id}'.")
+                return False
+
+            # Если email не указан, проверяем права "anyone" (общий доступ)
+            for permission in permissions.get("permissions", []):
+                if permission["type"] == "anyone":
+                    logging.info(f"Папка или файл с ID '{file_id}' имеет права {permission.get('role')} для любого пользователя (anyone).")
+                    return True
+
+            logging.info(f"Файл или папка с ID '{file_id}' не имеет публичных прав доступа.")
+            return False
+
+        except Exception as error:
+            logging.error(f"Произошла ошибка при проверке прав: {error}")
+            return False
+
+
+    def extend_permissions(self, folder_id, email=None):
+        try:
+            # Define the permission dictionary
+            permission = {"type": 'anyone', "role": "reader"}
+
+            # If an email is provided, modify the permission for the specific email
+            if email:
+                permission["type"] = "user"  # Set type to 'user' for specific email
+                permission["emailAddress"] = email
+
+            # Create the permission for the folder
+            self.service.permissions().create(
+                fileId=folder_id, body=permission, fields="id"
+            ).execute()
+
+            # Print confirmation message
+            logging.info(f"Permissions extended for folder with ID '{folder_id}'")
+            if email:
+                logging.info(f"Access granted to email: {email}")
+
+        except Exception as error:
+            logging.error(f"An error occurred while extending permissions: {error}")
+
+    def get_permission_id(self, file_id, email=None, access_type='anyone'):
+        """
+        Retrieves the permission ID for a given file or folder.
+
+        Args:
+            file_id (str): The ID of the file or folder. (required)
+            email (str, optional): The email address associated with the permission. If None, it searches for 'anyone' access.
+            access_type (str, optional): The type of access ('user' for specific users or 'anyone' for public access). Default is 'anyone'.
+
+        Returns:
+            str: The permission ID if found, otherwise None.
+        """
+        try:
+            # Fetch all permissions associated with the file
+            response = self.service.permissions().list(
+                fileId=file_id,
+                fields="permissions(id, type, emailAddress)"
+            ).execute()
+
+            # Extract permissions from the response
+            permissions = response.get('permissions', [])
+
+            # Find the permission matching the specified email or access type
+            for permission in permissions:
+                if email and permission.get('emailAddress') == email and permission.get('type') == 'user':
+                    logging.info(f"Permission found for user with email: {email}")
+                    return permission.get('id')
+                elif not email and permission.get('type') == access_type:
+                    logging.info("Permission found for public access ('anyone')")
+                    return permission.get('id')
+
+            # If no matching permission is found
+            logging.warning(f"No matching permission found for file with ID '{file_id}' and email '{email}'")
+            return None
+
+        except Exception as error:
+            logging.error(f"An error occurred while retrieving permissions: {error}")
+            return None
+
+    def delete_permissions(self, file_id, permission_id, supports_all_drives=False, use_domain_admin_access=False):
+        """
+        Deletes a permission from a file or shared drive.
+
+        Args:
+            file_id (str): The ID of the file or shared drive. (required)
+            permission_id (str): The ID of the permission to delete. (required)
+            supports_all_drives (bool): Whether the application supports both My Drives and shared drives. Default is False.
+            use_domain_admin_access (bool): Issue the request as a domain administrator if set to True. Default is False.
+        """
+        try:
+            # Call the delete API with the provided arguments
+            self.service.permissions().delete(
+                fileId=file_id,
+                permissionId=permission_id,
+                supportsAllDrives=supports_all_drives,
+                useDomainAdminAccess=use_domain_admin_access
+            ).execute()
+
+            # Logging a success message
+            logging.info(f"Permission with ID '{permission_id}' deleted from file with ID '{file_id}'.")
+
+        except Exception as error:
+            # Logging any errors that occur
+            logging.error(f"An error occurred while deleting permissions: {error}")
+
+
 if __name__ == "__main__":
     load_dotenv()
     uploader = Uploader(json.loads(os.getenv("GCP_CREDS")))
     # uploader.extend_permissions(folder_id=PARENT_FOLDER_ID, email='email')
+    email = 'email@gmail.com'
+    # permission_id = uploader.get_permission_id(PARENT_FOLDER_ID, email=email)
+    # permission_id_anyone = uploader.get_permission_id(PARENT_FOLDER_ID)
+    # uploader.check_permissions(PARENT_FOLDER_ID, email)
+    # uploader.list_permissions(PARENT_FOLDER_ID)
+    # uploader.extend_permissions(PARENT_FOLDER_ID, email)
+    # uploader.list_permissions(PARENT_FOLDER_ID)
+    # uploader.list_permissions(PARENT_FOLDER_ID)
+
+
     # root_folder_id = 'root'  # Special identifier for Google Drive root
     # folder_name = "migroot_docs"
     #
